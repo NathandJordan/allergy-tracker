@@ -14,7 +14,7 @@
   nav button.active { border-color: var(--accent); box-shadow: 0 0 0 2px #0ea5b81a inset; }
   main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
   .card { background: var(--card); border:1px solid #1f2937; border-radius: var(--radius); padding: var(--pad); margin: 12px 0; }
-  .row { display:flex; gap:10px; flex-wrap: wrap; }
+  .row { display:flex; gap:10px; flex-wrap: wrap; align-items: center; }
   .row > * { flex:1 1 220px; }
   label { display:block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
   input, select, textarea { width:100%; padding:10px; border-radius: 10px; border:1px solid #374151; background:#0b132a; color:var(--ink); }
@@ -27,24 +27,26 @@
   .btn.primary { background: #0ea5b8; border-color:#0ea5b8; color:#04242a; font-weight: 600; }
   .btn.inline { padding:6px 10px; font-size: 13px; }
   .btn.warn { background:#7c2d12; border-color:#7c2d12; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
   table { width:100%; border-collapse: collapse; }
   th, td { padding:8px; border-bottom:1px solid #1f2937; text-align: left; vertical-align: top; }
   small { color: var(--muted); }
   .right { text-align: right; }
   .nowrap { white-space: nowrap; }
   .section-title { margin: 4px 0 6px; font-weight: 600; }
-  .grid-7 { display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; }
   .pill { padding:6px 10px; border:1px solid #374151; border-radius:999px; display:inline-block; }
   .switch { display:inline-flex; align-items:center; gap:8px; }
   .switch input { width:auto; }
   .tiny { font-size:12px; }
+  td.future { opacity:.45; }
+  td.future button { pointer-events:none; }
 </style>
 </head>
 <body>
 <header>
   <h1>Allergy Shot & Meds Tracker</h1>
   <nav id="tabs">
-    <button data-tab="setup" class="active">Setup Vials & Meds</button>
+    <button data-tab="setup" class="active">Setup & Settings</button>
     <button data-tab="visit">New Shot Visit</button>
     <button data-tab="checkin">Reaction Check-In</button>
     <button data-tab="dailymeds">Daily Meds</button>
@@ -55,7 +57,7 @@
 </header>
 
 <main>
-  <!-- Setup -->
+  <!-- Setup & Settings -->
   <section id="tab-setup" class="card">
     <h2 class="section-title">Setup Vials & Scheduled Meds</h2>
     <div class="card">
@@ -90,6 +92,25 @@
       </div>
       <button class="btn primary" id="saveSched">Save Scheduled Meds</button>
       <small id="schedSavedMsg" class="muted"></small>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">Notification Settings (Shortcuts)</h3>
+      <div class="row">
+        <div class="switch"><input id="autoRemind" type="checkbox" /> <label for="autoRemind"><strong>Auto-schedule shot follow-up reminders</strong> after saving a visit</label></div>
+      </div>
+      <div class="row">
+        <div><label class="tiny">Reminders to create</label>
+          <div class="chips">
+            <span class="chip" data-offhour="1">+1h</span>
+            <span class="chip" data-offhour="4">+4h</span>
+            <span class="chip" data-offhour="24">+24h</span>
+            <span class="chip" data-offhour="48">+48h</span>
+          </div>
+          <small class="muted">Requires Shortcuts named <em>Allergy Shot Followups</em> (one-time setup).</small>
+        </div>
+      </div>
+      <small id="notifySavedMsg" class="muted"></small>
     </div>
   </section>
 
@@ -215,13 +236,18 @@
 
   <!-- Daily Meds -->
   <section id="tab-dailymeds" class="card" hidden>
-    <h2 class="section-title">Daily Meds (7-day)</h2>
+    <h2 class="section-title">Daily Meds (Mon → Sun)</h2>
     <div class="row">
-      <div><span class="pill" id="weekRange"></span></div>
+      <div>
+        <button class="btn inline" id="prevWeek">◀</button>
+        <button class="btn inline" id="todayWeek">Today</button>
+        <span class="pill" id="weekRange"></span>
+        <button class="btn inline" id="nextWeek">▶</button>
+      </div>
       <div class="right"><strong id="compliancePct">—%</strong> <small class="muted">compliance</small></div>
     </div>
     <div id="dailyGrid"></div>
-    <small class="muted">Tap a cell to toggle ✔ taken.</small>
+    <small class="muted">Tap a cell to toggle ✔ taken. Future days are dimmed and disabled.</small>
   </section>
 
   <!-- As-Needed -->
@@ -300,43 +326,51 @@
   const el = s => document.querySelector(s);
   const els = s => Array.from(document.querySelectorAll(s));
   const fmt = d => new Date(d).toLocaleString();
-  const STORE_KEY = 'allergyTrackerData:v2';
+  const STORE_KEY = 'allergyTrackerData:v4'; // bumped for Settings
   let data = load();
 
   function load(){
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return {
-        vials: ["", "", ""],
-        visits: [],     // {id, when, postAntiItch, leftCount, rightCount, shots:[{side, index, vial, place}], notes}
-        checks: [],     // {id, visitId, when, whealMM, itch, redness, antiItch, notes}
-        medsSched: {    // user-configurable names & slots
-          nasal: { name: "Nasal Spray", am: true, pm: true },
-          inhaler: { name: "Inhaler", am: true, pm: true },
-          pill: { name: "Allergy Pill", daily: true }
-        },
-        medsDaily: {},  // key: "YYYY-MM-DD", value: {slotId: true}
-        medsPrn: []     // {id, when, type, name, notes}
-      };
+      if (!raw) return fresh();
       const parsed = JSON.parse(raw);
-      parsed.vials ||= ["","",""];
+      parsed.vials ||= ["", "", ""];
       parsed.visits ||= [];
       parsed.checks ||= [];
       parsed.medsSched ||= { nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} };
       parsed.medsDaily ||= {};
       parsed.medsPrn ||= [];
+      parsed.settings ||= { autoRemind:false, reminderOffsets:[1,4,24,48] };
       return parsed;
-    } catch { return {
-      vials:["","",""], visits:[], checks:[],
-      medsSched:{ nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} },
-      medsDaily:{}, medsPrn:[]
-    }; }
+    } catch { return fresh(); }
+  }
+  function fresh(){
+    return {
+      vials: ["", "", ""],
+      visits: [],
+      checks: [],
+      medsSched: {
+        nasal: { name: "Nasal Spray", am: true, pm: true },
+        inhaler: { name: "Inhaler", am: true, pm: true },
+        pill: { name: "Allergy Pill", daily: true }
+      },
+      medsDaily: {},
+      medsPrn: [],
+      settings: { autoRemind:false, reminderOffsets:[1,4,24,48] }
+    };
   }
   function persist(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); refreshAll(); }
   function newId(p){ return p + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36); }
-  function setNow(input){
-    const now = new Date();
-    input.value = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  function toLocalDatetimeValue(date){
+    const n = new Date(date ?? Date.now());
+    return new Date(n.getTime() - n.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  }
+
+  // --- hash deep-linking to tabs (e.g. #dailymeds, #checkin)
+  const hashTab = location.hash.replace('#','');
+  if (hashTab) {
+    const btn = document.querySelector(`#tabs button[data-tab="${hashTab}"]`);
+    if (btn) btn.click();
   }
 
   // ---------- Tabs ----------
@@ -349,9 +383,7 @@
 
   // ---------- Setup: Vials ----------
   const vialInputs = [el('#vial1'), el('#vial2'), el('#vial3')];
-  function loadVialsUI(){
-    data.vials.forEach((v,i)=>{ vialInputs[i].value = v || ""; });
-  }
+  function loadVialsUI(){ data.vials.forEach((v,i)=>{ vialInputs[i].value = v || ""; }); }
   el('#saveVials').addEventListener('click', ()=>{
     data.vials = vialInputs.map(i=>i.value.trim());
     persist();
@@ -379,7 +411,37 @@
     persist();
     el('#schedSavedMsg').textContent = 'Saved ✔';
     setTimeout(()=>el('#schedSavedMsg').textContent='', 1800);
-    renderDailyGrid(); // reflect names immediately
+    renderDailyGrid();
+  });
+
+  // ---------- Settings: Auto reminders ----------
+  const autoRemind = el('#autoRemind');
+  const offsetChips = els('[data-offhour]');
+  function loadSettingsUI(){
+    autoRemind.checked = !!data.settings.autoRemind;
+    offsetChips.forEach(c=>{
+      const h = parseInt(c.dataset.offhour,10);
+      c.setAttribute('aria-pressed', data.settings.reminderOffsets.includes(h) ? 'true' : 'false');
+    });
+  }
+  autoRemind.addEventListener('change', ()=>{
+    data.settings.autoRemind = autoRemind.checked;
+    persist();
+    el('#notifySavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#notifySavedMsg').textContent='', 1200);
+  });
+  offsetChips.forEach(c=>{
+    c.addEventListener('click', ()=>{
+      const h = parseInt(c.dataset.offhour,10);
+      const arr = data.settings.reminderOffsets;
+      const i = arr.indexOf(h);
+      if (i>=0) arr.splice(i,1); else arr.push(h);
+      arr.sort((a,b)=>a-b);
+      c.setAttribute('aria-pressed', i<0 ? 'true' : 'false');
+      persist();
+      el('#notifySavedMsg').textContent = 'Saved ✔';
+      setTimeout(()=>el('#notifySavedMsg').textContent='', 1200);
+    });
   });
 
   // ---------- Visit ----------
@@ -388,8 +450,7 @@
   const visitNotes = el('#visitNotes');
   let leftShots = 0, rightShots = 0;
 
-  function setNowLocal(input){ const n=new Date(); input.value = new Date(n.getTime()-n.getTimezoneOffset()*60000).toISOString().slice(0,16); }
-  setNowLocal(visitDate);
+  visitDate.value = toLocalDatetimeValue();
 
   els('[data-left]').forEach(chip=>{
     chip.addEventListener('click', ()=>{
@@ -407,7 +468,6 @@
   });
 
   function shotRow(side, idx){
-    // side: "L"/"R", idx: 1-based within that side
     const vialOpts = data.vials.map(v => `<option ${v?'':'disabled'}>${v || '(Unnamed vial)'}</option>`).join('');
     return `<div class="row" data-shot="${side}${idx}">
       <div>
@@ -432,10 +492,24 @@
     host.innerHTML = html || '<small class="muted">Set left/right shot counts to configure vials & placements.</small>';
   }
 
+  function launchShortcutForFollowups(whenISO){
+    if (!data.settings.autoRemind || !data.settings.reminderOffsets?.length) return;
+    try {
+      const payload = encodeURIComponent(JSON.stringify({
+        when: whenISO,
+        offsets: data.settings.reminderOffsets
+      }));
+      const url = `shortcuts://run-shortcut?name=${encodeURIComponent('Allergy Shot Followups')}&input=text&text=${payload}`;
+      // hand off to Shortcuts; iOS will swap apps and then the user can return
+      window.location.href = url;
+    } catch (e) {
+      console.warn('Shortcut launch failed:', e);
+    }
+  }
+
   el('#saveVisit').addEventListener('click', ()=>{
     const when = visitDate.value ? new Date(visitDate.value).toISOString() : new Date().toISOString();
     const shots = [];
-    // collect L then R
     for (let i=1;i<=leftShots;i++){
       const row = el(`[data-shot="L${i}"]`);
       if (row){
@@ -463,8 +537,11 @@
     };
     data.visits.push(v);
     persist();
-    el('#visitSavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#visitSavedMsg').textContent='', 1800);
+    el('#visitSavedMsg').textContent = 'Saved ✔  (scheduling reminders…)';
+    setTimeout(()=>el('#visitSavedMsg').textContent='', 2200);
+
+    // Kick off Shortcut to create reminders
+    launchShortcutForFollowups(when);
   });
 
   // ---------- Check-In ----------
@@ -493,7 +570,7 @@
       checkVisit.appendChild(opt);
     }
   }
-  setNow(checkTime);
+  checkTime.value = toLocalDatetimeValue();
   els('[data-offset]').forEach(chip=>{
     chip.addEventListener('click', ()=>{
       const baseISO = (()=>{
@@ -503,10 +580,10 @@
       })();
       const dt = new Date(baseISO);
       dt.setHours(dt.getHours() + parseInt(chip.dataset.offset,10));
-      checkTime.value = new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+      checkTime.value = toLocalDatetimeValue(dt);
     });
   });
-  els('[data-now]').forEach(chip=> chip.addEventListener('click', ()=> setNow(checkTime)));
+  els('[data-now]').forEach(chip=> chip.addEventListener('click', ()=> checkTime.value = toLocalDatetimeValue()));
 
   el('#saveCheck').addEventListener('click', ()=>{
     if (!checkVisit.value){ alert('Please select a visit.'); return; }
@@ -548,17 +625,29 @@
     box.innerHTML = html;
   }
 
-  // ---------- Daily Meds (7-day grid) ----------
-  function dayKey(d){ return d.toISOString().slice(0,10); } // YYYY-MM-DD
-  function getLast7Days(){
-    const days=[];
-    const today = new Date(); today.setHours(0,0,0,0);
-    for(let i=6;i>=0;i--){
-      const d = new Date(today); d.setDate(today.getDate()-i);
+  // ---------- Daily Meds (Mon → Sun with week nav) ----------
+  let weekOffset = 0; // 0=this week, -1=last, +1=next...
+
+  function startOfWeekMonday(d) {
+    const tmp = new Date(d);
+    tmp.setHours(0,0,0,0);
+    const dow = tmp.getDay();      // Sun=0..Sat=6
+    const diff = (dow + 6) % 7;    // days since Monday
+    tmp.setDate(tmp.getDate() - diff);
+    return tmp;
+  }
+  function getWeekDays(offsetWeeks = 0) {
+    const monday = startOfWeekMonday(new Date());
+    monday.setDate(monday.getDate() + offsetWeeks * 7);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
       days.push(d);
     }
-    return days;
+    return days; // Mon..Sun
   }
+  function dayKey(d){ return d.toISOString().slice(0,10); } // YYYY-MM-DD
   function slotsFromSched(){
     const S = data.medsSched, slots=[];
     if (S.nasal.am) slots.push({id:'nasal_am', label:`${S.nasal.name} AM`});
@@ -568,9 +657,10 @@
     if (S.pill.daily) slots.push({id:'pill_daily', label:`${S.pill.name}`});
     return slots;
   }
+
   function renderDailyGrid(){
     const host = el('#dailyGrid'); host.innerHTML='';
-    const days = getLast7Days();
+    const days = getWeekDays(weekOffset);
     const slots = slotsFromSched();
     const rangeStr = `${days[0].toLocaleDateString()} – ${days[6].toLocaleDateString()}`;
     el('#weekRange').textContent = rangeStr;
@@ -581,8 +671,12 @@
       return;
     }
 
+    const now = new Date(); now.setHours(0,0,0,0);
+
     let html = '<table><thead><tr><th>Medication</th>';
-    for (const d of days){ html += `<th class="nowrap">${d.toLocaleDateString(undefined,{weekday:'short'})}<br>${d.getMonth()+1}/${d.getDate()}</th>`; }
+    for (const d of days){
+      html += `<th class="nowrap" title="${d.toDateString()}">${d.toLocaleDateString(undefined,{weekday:'short'})}<br>${d.getMonth()+1}/${d.getDate()}</th>`;
+    }
     html += '</tr></thead><tbody>';
 
     for (const s of slots){
@@ -590,8 +684,9 @@
       for (const d of days){
         const key = dayKey(d);
         const taken = !!(data.medsDaily[key] && data.medsDaily[key][s.id]);
-        html += `<td data-cell="${key}:${s.id}">
-          <button class="btn inline" data-tgl="${key}:${s.id}">${taken?'✔':'✖'}</button>
+        const isFuture = (d > now);
+        html += `<td data-cell="${key}:${s.id}" class="${isFuture?'future':''}">
+          <button class="btn inline" data-tgl="${key}:${s.id}" ${isFuture?'disabled':''}>${taken?'✔':'✖'}</button>
         </td>`;
       }
       html += '</tr>';
@@ -599,15 +694,14 @@
     html += '</tbody></table>';
     host.innerHTML = html;
 
-    // Toggle handlers
-    host.addEventListener('click', dailyToggleHandler);
+    host.addEventListener('click', dailyToggleHandler, { once: true });
 
     updateCompliance(days, slots);
   }
 
   function dailyToggleHandler(e){
     const b = e.target.closest('button[data-tgl]');
-    if (!b) return;
+    if (!b || b.disabled) return;
     const [key, slot] = b.dataset.tgl.split(':');
     data.medsDaily[key] ||= {};
     data.medsDaily[key][slot] = !data.medsDaily[key][slot];
@@ -615,25 +709,41 @@
   }
 
   function updateCompliance(days, slots){
+    const today = new Date(); today.setHours(0,0,0,0);
     let total=0, done=0;
     for (const d of days){
       const key = dayKey(d);
+      const countThisDay =
+        (weekOffset < 0) ? true :
+        (weekOffset > 0) ? false :
+        (d <= today);
+
+      if (!countThisDay) continue;
+
       for (const s of slots){
         total++;
         if (data.medsDaily[key] && data.medsDaily[key][s.id]) done++;
       }
     }
-    const pct = total ? Math.round((done/total)*100) : 0;
-    el('#compliancePct').textContent = `${pct}%`;
+    el('#compliancePct').textContent = total ? `${Math.round((done/total)*100)}%` : '—%';
+  }
+
+  function wireWeekNav(){
+    el('#prevWeek').addEventListener('click', ()=>{ weekOffset -= 1; renderDailyGrid(); });
+    el('#nextWeek').addEventListener('click', ()=>{ weekOffset += 1; renderDailyGrid(); });
+    el('#todayWeek').addEventListener('click', ()=>{ weekOffset = 0; renderDailyGrid(); });
   }
 
   // ---------- As-Needed ----------
-  const prnTime = el('#prnTime'); setNow(prnTime);
-  el('#prnNow').addEventListener('click', ()=> setNow(prnTime));
+  const prnTime = el('#prnTime'); prnTime.value = toLocalDatetimeValue();
+  el('#prnNow').addEventListener('click', ()=> prnTime.value = toLocalDatetimeValue());
   el('#savePrn').addEventListener('click', ()=>{
     const entry = {
-      id: newId('prn'), when: prnTime.value ? new Date(prnTime.value).toISOString() : new Date().toISOString(),
-      type: el('#prnType').value, name: el('#prnName').value.trim(), notes: el('#prnNotes').value.trim()
+      id: newId('prn'),
+      when: prnTime.value ? new Date(prnTime.value).toISOString() : new Date().toISOString(),
+      type: el('#prnType').value,
+      name: el('#prnName').value.trim(),
+      notes: el('#prnNotes').value.trim()
     };
     data.medsPrn.push(entry);
     persist();
@@ -768,11 +878,7 @@
   });
   el('#wipeAll').addEventListener('click', ()=>{
     if (!confirm('Erase ALL locally stored data? This cannot be undone.')) return;
-    data = {
-      vials:["","",""], visits:[], checks:[],
-      medsSched:{ nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} },
-      medsDaily:{}, medsPrn:[]
-    };
+    data = fresh();
     persist();
     alert('All data erased from this browser.');
   });
@@ -786,11 +892,61 @@
     renderDailyGrid();
   }
 
+  // Week nav for Daily Meds
+  function wireWeekNav(){
+    el('#prevWeek').addEventListener('click', ()=>{ weekOffset -= 1; renderDailyGrid(); });
+    el('#nextWeek').addEventListener('click', ()=>{ weekOffset += 1; renderDailyGrid(); });
+    el('#todayWeek').addEventListener('click', ()=>{ weekOffset = 0; renderDailyGrid(); });
+  }
+
   // Initial UI load
   loadVialsUI();
   loadSchedUI();
+  loadSettingsUI();
   renderShotRows();
+  wireWeekNav();
   refreshAll();
+
+  // ---------- Check & PRN helpers ----------
+  const prnTime = el('#prnTime'); if (prnTime) prnTime.value = toLocalDatetimeValue();
+  el('#prnNow')?.addEventListener('click', ()=> prnTime.value = toLocalDatetimeValue());
+  function renderRecentPrn(){
+    const host = el('#recentPrn');
+    if(!host) return;
+    const items = [...data.medsPrn].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10);
+    if (items.length===0){ host.innerHTML = '<small class="muted">No entries yet.</small>'; return; }
+    let html = '<table><thead><tr><th>When</th><th>Type</th><th>Details</th><th>Notes</th></tr></thead><tbody>';
+    for (const m of items){
+      html += `<tr>
+        <td class="nowrap">${fmt(m.when)}</td>
+        <td>${m.type}</td>
+        <td>${m.name ? m.name.replace(/</g,'&lt;') : ''}</td>
+        <td>${m.notes ? m.notes.replace(/</g,'&lt;') : ''}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    host.innerHTML = html;
+  }
+
+  function populateVisitSelect(){
+    const sel = el('#checkVisit');
+    if(!sel) return;
+    sel.innerHTML = '';
+    const sorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    if (sorted.length===0){
+      sel.innerHTML = '<option value="">No visits yet</option>';
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    for (const v of sorted){
+      const shotsTxt = `L:${v.leftCount} R:${v.rightCount}`;
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = `${fmt(v.when)} — ${shotsTxt}${v.postAntiItch? ' — Anti-itch:'+v.postAntiItch : ''}`;
+      sel.appendChild(opt);
+    }
+  }
 
 })();
 </script>
