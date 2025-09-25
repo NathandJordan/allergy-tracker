@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Allergy Shot & Meds Tracker</title>
+<style>
+  :root { --pad: 12px; --radius: 12px; --bg: #0f172a; --card: #111827; --ink:#e5e7eb; --muted:#9ca3af; --accent:#22d3ee; }
+  html,body { background: var(--bg); color: var(--ink); font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; }
+  header { position: sticky; top: 0; background: #0b1226cc; backdrop-filter: blur(8px); padding: 10px var(--pad); border-bottom: 1px solid #1f2937; z-index: 10; }
+  h1 { font-size: 18px; margin:0 0 6px; }
+  nav { display:flex; gap:8px; flex-wrap: wrap; }
+  nav button { flex:1; min-width:130px; padding:10px; border:1px solid #1f2937; border-radius: 10px; background:#0b132a; color:var(--ink); cursor:pointer; }
+  nav button.active { border-color: var(--accent); box-shadow: 0 0 0 2px #0ea5b81a inset; }
+  main { padding: var(--pad); max-width: 980px; margin: 0 auto; }
+  .card { background: var(--card); border:1px solid #1f2937; border-radius: var(--radius); padding: var(--pad); margin: 12px 0; }
+  .row { display:flex; gap:10px; flex-wrap: wrap; }
+  .row > * { flex:1 1 220px; }
+  label { display:block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  input, select, textarea { width:100%; padding:10px; border-radius: 10px; border:1px solid #374151; background:#0b132a; color:var(--ink); }
+  textarea { min-height: 80px; resize: vertical; }
+  .muted { color: var(--muted); }
+  .chips { display:flex; gap:8px; flex-wrap: wrap; }
+  .chip { padding:8px 10px; border:1px solid #374151; border-radius: 999px; cursor:pointer; user-select:none; }
+  .chip[aria-pressed="true"] { border-color: var(--accent); }
+  .btn { padding:10px 14px; border-radius: 10px; border:1px solid #374151; background:#0b132a; color:var(--ink); cursor:pointer; }
+  .btn.primary { background: #0ea5b8; border-color:#0ea5b8; color:#04242a; font-weight: 600; }
+  .btn.inline { padding:6px 10px; font-size: 13px; }
+  .btn.warn { background:#7c2d12; border-color:#7c2d12; }
+  table { width:100%; border-collapse: collapse; }
+  th, td { padding:8px; border-bottom:1px solid #1f2937; text-align: left; vertical-align: top; }
+  small { color: var(--muted); }
+  .right { text-align: right; }
+  .nowrap { white-space: nowrap; }
+  .section-title { margin: 4px 0 6px; font-weight: 600; }
+  .grid-7 { display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; }
+  .pill { padding:6px 10px; border:1px solid #374151; border-radius:999px; display:inline-block; }
+  .switch { display:inline-flex; align-items:center; gap:8px; }
+  .switch input { width:auto; }
+  .tiny { font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Allergy Shot & Meds Tracker</h1>
+  <nav id="tabs">
+    <button data-tab="setup" class="active">Setup Vials & Meds</button>
+    <button data-tab="visit">New Shot Visit</button>
+    <button data-tab="checkin">Reaction Check-In</button>
+    <button data-tab="dailymeds">Daily Meds</button>
+    <button data-tab="prn">As-Needed</button>
+    <button data-tab="history">History</button>
+    <button data-tab="export">Export / Import</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Setup -->
+  <section id="tab-setup" class="card">
+    <h2 class="section-title">Setup Vials & Scheduled Meds</h2>
+    <div class="card">
+      <h3 class="section-title">Vial Names (used when logging shots)</h3>
+      <div class="row">
+        <div><label for="vial1">Vial 1</label><input id="vial1" type="text" placeholder="e.g., Grass mix" /></div>
+        <div><label for="vial2">Vial 2</label><input id="vial2" type="text" placeholder="e.g., Tree mix" /></div>
+        <div><label for="vial3">Vial 3</label><input id="vial3" type="text" placeholder="e.g., Dust" /></div>
+      </div>
+      <button class="btn primary" id="saveVials">Save Vials</button>
+      <small id="vialsSavedMsg" class="muted"></small>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">Scheduled Meds (shown in Daily Meds)</h3>
+      <small class="muted">Rename or hide any you don't use. Defaults match your routine.</small>
+      <div class="row">
+        <div>
+          <label>Name</label><input id="sched-nasal" type="text" value="Nasal Spray" />
+          <div class="switch tiny"><input id="sched-nasal-am" type="checkbox" checked /> <label for="sched-nasal-am">Morning</label></div>
+          <div class="switch tiny"><input id="sched-nasal-pm" type="checkbox" checked /> <label for="sched-nasal-pm">Evening</label></div>
+        </div>
+        <div>
+          <label>Name</label><input id="sched-inhaler" type="text" value="Inhaler" />
+          <div class="switch tiny"><input id="sched-inhaler-am" type="checkbox" checked /> <label for="sched-inhaler-am">Morning</label></div>
+          <div class="switch tiny"><input id="sched-inhaler-pm" type="checkbox" checked /> <label for="sched-inhaler-pm">Evening</label></div>
+        </div>
+        <div>
+          <label>Name</label><input id="sched-pill" type="text" value="Allergy Pill" />
+          <div class="switch tiny"><input id="sched-pill-daily" type="checkbox" checked /> <label for="sched-pill-daily">Daily (once)</label></div>
+        </div>
+      </div>
+      <button class="btn primary" id="saveSched">Save Scheduled Meds</button>
+      <small id="schedSavedMsg" class="muted"></small>
+    </div>
+  </section>
+
+  <!-- New Shot Visit -->
+  <section id="tab-visit" class="card" hidden>
+    <h2 class="section-title">Log a Shot Visit</h2>
+    <div class="row">
+      <div>
+        <label for="visitDate">Date & time</label>
+        <input id="visitDate" type="datetime-local" />
+      </div>
+      <div>
+        <label>Anti-itch applied after shots?</label>
+        <select id="visitAntiItch">
+          <option value="">—</option>
+          <option>No</option>
+          <option>Yes</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Left arm — number of shots</label>
+        <div class="chips">
+          <span class="chip" data-left="0">0</span>
+          <span class="chip" data-left="1">1</span>
+          <span class="chip" data-left="2">2</span>
+        </div>
+      </div>
+      <div>
+        <label>Right arm — number of shots</label>
+        <div class="chips">
+          <span class="chip" data-right="0">0</span>
+          <span class="chip" data-right="1">1</span>
+          <span class="chip" data-right="2">2</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="shotRows" class="card" style="margin-top:10px">
+      <h3 class="section-title">Specify Each Shot</h3>
+      <small class="muted">For each shot, select vial and placement (upper/lower).</small>
+      <div id="shotRowsHost"></div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="visitNotes">Notes (optional)</label>
+        <textarea id="visitNotes" placeholder="Lot numbers, vial strength, nurse name, etc."></textarea>
+      </div>
+    </div>
+    <button class="btn primary" id="saveVisit">Save Visit</button>
+    <small id="visitSavedMsg" class="muted"></small>
+  </section>
+
+  <!-- Reaction Check-In -->
+  <section id="tab-checkin" class="card" hidden>
+    <h2 class="section-title">Reaction Check-In</h2>
+    <div class="row">
+      <div>
+        <label for="checkVisit">Which visit?</label>
+        <select id="checkVisit"></select>
+      </div>
+      <div>
+        <label for="checkTime">Check-in time</label>
+        <input id="checkTime" type="datetime-local" />
+        <div class="chips" style="margin-top:6px">
+          <span class="chip" data-offset="1">+1h</span>
+          <span class="chip" data-offset="4">+4h</span>
+          <span class="chip" data-offset="24">+24h</span>
+          <span class="chip" data-offset="48">+48h</span>
+          <span class="chip" data-now="1">Now</span>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="whealSize">Wheal/flare size (mm, estimate)</label>
+        <input id="whealSize" type="number" min="0" step="1" placeholder="e.g., 8" />
+      </div>
+      <div>
+        <label for="itch">Itch level</label>
+        <select id="itch">
+          <option value="">—</option>
+          <option>None</option>
+          <option>Mild</option>
+          <option>Moderate</option>
+          <option>Severe</option>
+        </select>
+      </div>
+      <div>
+        <label for="redness">Redness</label>
+        <select id="redness">
+          <option value="">—</option>
+          <option>No</option>
+          <option>Yes</option>
+        </select>
+      </div>
+      <div>
+        <label for="antiItch">Anti-itch applied?</label>
+        <select id="antiItch">
+          <option value="">—</option>
+          <option>No</option>
+          <option>Yes</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="checkNotes">Notes (optional)</label>
+        <textarea id="checkNotes" placeholder="e.g., hydrocortisone at 4pm; ice pack 10 min"></textarea>
+      </div>
+    </div>
+    <button class="btn primary" id="saveCheck">Save Check-In</button>
+    <small id="checkSavedMsg" class="muted"></small>
+
+    <div class="card" style="margin-top:12px">
+      <h3 class="section-title">Recent Check-Ins</h3>
+      <div id="recentChecks"></div>
+    </div>
+  </section>
+
+  <!-- Daily Meds -->
+  <section id="tab-dailymeds" class="card" hidden>
+    <h2 class="section-title">Daily Meds (7-day)</h2>
+    <div class="row">
+      <div><span class="pill" id="weekRange"></span></div>
+      <div class="right"><strong id="compliancePct">—%</strong> <small class="muted">compliance</small></div>
+    </div>
+    <div id="dailyGrid"></div>
+    <small class="muted">Tap a cell to toggle ✔ taken.</small>
+  </section>
+
+  <!-- As-Needed -->
+  <section id="tab-prn" class="card" hidden>
+    <h2 class="section-title">As-Needed Meds / Events</h2>
+    <div class="row">
+      <div>
+        <label for="prnTime">Date & time</label>
+        <input id="prnTime" type="datetime-local" />
+        <div style="margin-top:6px"><button class="btn inline" id="prnNow">Now</button></div>
+      </div>
+      <div>
+        <label for="prnType">Type</label>
+        <select id="prnType">
+          <option>Extra Antihistamine</option>
+          <option>Extra Anti-itch Cream</option>
+          <option>Rescue Inhaler</option>
+          <option>EpiPen</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div>
+        <label for="prnName">Name / Details</label>
+        <input id="prnName" type="text" placeholder="e.g., cetirizine 10 mg, 2 puffs, etc." />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="prnNotes">Notes (optional)</label>
+        <input id="prnNotes" type="text" placeholder="context, symptoms, triggers" />
+      </div>
+    </div>
+    <button class="btn primary" id="savePrn">Save Entry</button>
+    <small id="prnSavedMsg" class="muted"></small>
+
+    <div class="card" style="margin-top:12px">
+      <h3 class="section-title">Recent As-Needed</h3>
+      <div id="recentPrn"></div>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="tab-history" class="card" hidden>
+    <h2 class="section-title">History</h2>
+    <div id="history"></div>
+  </section>
+
+  <!-- Export / Import -->
+  <section id="tab-export" class="card" hidden>
+    <h2 class="section-title">Export / Import</h2>
+    <div class="row">
+      <div class="card">
+        <h3 class="section-title">Export JSON (all data)</h3>
+        <button class="btn" id="exportJSON">Download JSON</button>
+      </div>
+      <div class="card">
+        <h3 class="section-title">Export Reactions CSV</h3>
+        <button class="btn" id="exportCSV">Download CSV</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="section-title">Import JSON</h3>
+      <input type="file" id="importFile" accept=".json,application/json" />
+      <button class="btn" id="importBtn">Import</button>
+      <small class="muted">Import replaces current data after confirmation.</small>
+    </div>
+    <div class="card">
+      <h3 class="section-title">Danger Zone</h3>
+      <button class="btn warn" id="wipeAll">Erase All Data (local)</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(function(){
+  const el = s => document.querySelector(s);
+  const els = s => Array.from(document.querySelectorAll(s));
+  const fmt = d => new Date(d).toLocaleString();
+  const STORE_KEY = 'allergyTrackerData:v2';
+  let data = load();
+
+  function load(){
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return {
+        vials: ["", "", ""],
+        visits: [],     // {id, when, postAntiItch, leftCount, rightCount, shots:[{side, index, vial, place}], notes}
+        checks: [],     // {id, visitId, when, whealMM, itch, redness, antiItch, notes}
+        medsSched: {    // user-configurable names & slots
+          nasal: { name: "Nasal Spray", am: true, pm: true },
+          inhaler: { name: "Inhaler", am: true, pm: true },
+          pill: { name: "Allergy Pill", daily: true }
+        },
+        medsDaily: {},  // key: "YYYY-MM-DD", value: {slotId: true}
+        medsPrn: []     // {id, when, type, name, notes}
+      };
+      const parsed = JSON.parse(raw);
+      parsed.vials ||= ["","",""];
+      parsed.visits ||= [];
+      parsed.checks ||= [];
+      parsed.medsSched ||= { nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} };
+      parsed.medsDaily ||= {};
+      parsed.medsPrn ||= [];
+      return parsed;
+    } catch { return {
+      vials:["","",""], visits:[], checks:[],
+      medsSched:{ nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} },
+      medsDaily:{}, medsPrn:[]
+    }; }
+  }
+  function persist(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); refreshAll(); }
+  function newId(p){ return p + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36); }
+  function setNow(input){
+    const now = new Date();
+    input.value = new Date(now.getTime() - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  }
+
+  // ---------- Tabs ----------
+  el('#tabs').addEventListener('click', (e)=>{
+    const b = e.target.closest('button[data-tab]');
+    if (!b) return;
+    els('#tabs button').forEach(x=>x.classList.toggle('active', x===b));
+    els('main > section').forEach(sec => sec.hidden = !sec.id.endsWith(b.dataset.tab));
+  });
+
+  // ---------- Setup: Vials ----------
+  const vialInputs = [el('#vial1'), el('#vial2'), el('#vial3')];
+  function loadVialsUI(){
+    data.vials.forEach((v,i)=>{ vialInputs[i].value = v || ""; });
+  }
+  el('#saveVials').addEventListener('click', ()=>{
+    data.vials = vialInputs.map(i=>i.value.trim());
+    persist();
+    el('#vialsSavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#vialsSavedMsg').textContent='', 1800);
+  });
+
+  // ---------- Setup: Scheduled Meds ----------
+  function loadSchedUI(){
+    el('#sched-nasal').value = data.medsSched.nasal.name;
+    el('#sched-nasal-am').checked = !!data.medsSched.nasal.am;
+    el('#sched-nasal-pm').checked = !!data.medsSched.nasal.pm;
+    el('#sched-inhaler').value = data.medsSched.inhaler.name;
+    el('#sched-inhaler-am').checked = !!data.medsSched.inhaler.am;
+    el('#sched-inhaler-pm').checked = !!data.medsSched.inhaler.pm;
+    el('#sched-pill').value = data.medsSched.pill.name;
+    el('#sched-pill-daily').checked = !!data.medsSched.pill.daily;
+  }
+  el('#saveSched').addEventListener('click', ()=>{
+    data.medsSched = {
+      nasal: { name: el('#sched-nasal').value.trim() || 'Nasal Spray', am: el('#sched-nasal-am').checked, pm: el('#sched-nasal-pm').checked },
+      inhaler: { name: el('#sched-inhaler').value.trim() || 'Inhaler', am: el('#sched-inhaler-am').checked, pm: el('#sched-inhaler-pm').checked },
+      pill: { name: el('#sched-pill').value.trim() || 'Allergy Pill', daily: el('#sched-pill-daily').checked }
+    };
+    persist();
+    el('#schedSavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#schedSavedMsg').textContent='', 1800);
+    renderDailyGrid(); // reflect names immediately
+  });
+
+  // ---------- Visit ----------
+  const visitDate = el('#visitDate');
+  const visitAntiItch = el('#visitAntiItch');
+  const visitNotes = el('#visitNotes');
+  let leftShots = 0, rightShots = 0;
+
+  function setNowLocal(input){ const n=new Date(); input.value = new Date(n.getTime()-n.getTimezoneOffset()*60000).toISOString().slice(0,16); }
+  setNowLocal(visitDate);
+
+  els('[data-left]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      leftShots = parseInt(chip.dataset.left,10);
+      els('[data-left]').forEach(c=> c.setAttribute('aria-pressed', c===chip ? 'true' : 'false'));
+      renderShotRows();
+    });
+  });
+  els('[data-right]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      rightShots = parseInt(chip.dataset.right,10);
+      els('[data-right]').forEach(c=> c.setAttribute('aria-pressed', c===chip ? 'true' : 'false'));
+      renderShotRows();
+    });
+  });
+
+  function shotRow(side, idx){
+    // side: "L"/"R", idx: 1-based within that side
+    const vialOpts = data.vials.map(v => `<option ${v?'':'disabled'}>${v || '(Unnamed vial)'}</option>`).join('');
+    return `<div class="row" data-shot="${side}${idx}">
+      <div>
+        <label>${side==='L'?'Left':'Right'} arm — Shot ${idx}: Vial</label>
+        <select class="shot-vial">${vialOpts}</select>
+      </div>
+      <div>
+        <label>Placement</label>
+        <select class="shot-place">
+          <option>Upper</option>
+          <option>Lower</option>
+        </select>
+      </div>
+    </div>`;
+  }
+
+  function renderShotRows(){
+    const host = el('#shotRowsHost');
+    let html = '';
+    for (let i=1;i<=leftShots;i++) html += shotRow('L', i);
+    for (let i=1;i<=rightShots;i++) html += shotRow('R', i);
+    host.innerHTML = html || '<small class="muted">Set left/right shot counts to configure vials & placements.</small>';
+  }
+
+  el('#saveVisit').addEventListener('click', ()=>{
+    const when = visitDate.value ? new Date(visitDate.value).toISOString() : new Date().toISOString();
+    const shots = [];
+    // collect L then R
+    for (let i=1;i<=leftShots;i++){
+      const row = el(`[data-shot="L${i}"]`);
+      if (row){
+        const vial = row.querySelector('.shot-vial')?.value || '';
+        const place = row.querySelector('.shot-place')?.value || '';
+        shots.push({ side:'L', index:i, vial, place });
+      }
+    }
+    for (let i=1;i<=rightShots;i++){
+      const row = el(`[data-shot="R${i}"]`);
+      if (row){
+        const vial = row.querySelector('.shot-vial')?.value || '';
+        const place = row.querySelector('.shot-place')?.value || '';
+        shots.push({ side:'R', index:i, vial, place });
+      }
+    }
+    const v = {
+      id: newId('visit'),
+      when,
+      postAntiItch: visitAntiItch.value || '',
+      leftCount: leftShots|0,
+      rightCount: rightShots|0,
+      shots,
+      notes: visitNotes.value.trim()
+    };
+    data.visits.push(v);
+    persist();
+    el('#visitSavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#visitSavedMsg').textContent='', 1800);
+  });
+
+  // ---------- Check-In ----------
+  const checkVisit = el('#checkVisit');
+  const checkTime = el('#checkTime');
+  const whealSize = el('#whealSize');
+  const itch = el('#itch');
+  const redness = el('#redness');
+  const antiItch = el('#antiItch');
+  const checkNotes = el('#checkNotes');
+
+  function populateVisitSelect(){
+    checkVisit.innerHTML = '';
+    const sorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    if (sorted.length===0){
+      checkVisit.innerHTML = '<option value="">No visits yet</option>';
+      checkVisit.disabled = true;
+      return;
+    }
+    checkVisit.disabled = false;
+    for (const v of sorted){
+      const shotsTxt = `L:${v.leftCount} R:${v.rightCount}`;
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = `${fmt(v.when)} — ${shotsTxt}${v.postAntiItch? ' — Anti-itch:'+v.postAntiItch : ''}`;
+      checkVisit.appendChild(opt);
+    }
+  }
+  setNow(checkTime);
+  els('[data-offset]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const baseISO = (()=>{
+        const id = checkVisit.value;
+        const v = data.visits.find(x=>x.id===id);
+        return v?.when || new Date().toISOString();
+      })();
+      const dt = new Date(baseISO);
+      dt.setHours(dt.getHours() + parseInt(chip.dataset.offset,10));
+      checkTime.value = new Date(dt.getTime()-dt.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    });
+  });
+  els('[data-now]').forEach(chip=> chip.addEventListener('click', ()=> setNow(checkTime)));
+
+  el('#saveCheck').addEventListener('click', ()=>{
+    if (!checkVisit.value){ alert('Please select a visit.'); return; }
+    const record = {
+      id: newId('check'),
+      visitId: checkVisit.value,
+      when: checkTime.value ? new Date(checkTime.value).toISOString() : new Date().toISOString(),
+      whealMM: whealSize.value ? Number(whealSize.value) : null,
+      itch: itch.value || null,
+      redness: redness.value || null,
+      antiItch: antiItch.value || null,
+      notes: checkNotes.value.trim() || null
+    };
+    data.checks.push(record);
+    persist();
+    el('#checkSavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#checkSavedMsg').textContent='', 1800);
+    whealSize.value=''; itch.value=''; redness.value=''; antiItch.value=''; checkNotes.value='';
+  });
+
+  function renderRecentChecks(){
+    const box = el('#recentChecks');
+    const sorted = [...data.checks].sort((a,b)=> new Date(b.when) - new Date(a.when)).slice(-10).reverse();
+    if (sorted.length===0){ box.innerHTML = '<small class="muted">No check-ins yet.</small>'; return; }
+    let html = '<table><thead><tr><th>When</th><th>Visit</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead><tbody>';
+    for (const c of sorted){
+      const v = data.visits.find(x=>x.id===c.visitId);
+      html += `<tr>
+        <td class="nowrap">${fmt(c.when)}</td>
+        <td>${v ? `${fmt(v.when)} (L:${v.leftCount} R:${v.rightCount})` : '—'}</td>
+        <td>${c.whealMM ?? ''}</td>
+        <td>${c.itch ?? ''}</td>
+        <td>${c.redness ?? ''}</td>
+        <td>${c.antiItch ?? ''}</td>
+        <td>${c.notes ? c.notes.replace(/</g,'&lt;') : ''}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    box.innerHTML = html;
+  }
+
+  // ---------- Daily Meds (7-day grid) ----------
+  function dayKey(d){ return d.toISOString().slice(0,10); } // YYYY-MM-DD
+  function getLast7Days(){
+    const days=[];
+    const today = new Date(); today.setHours(0,0,0,0);
+    for(let i=6;i>=0;i--){
+      const d = new Date(today); d.setDate(today.getDate()-i);
+      days.push(d);
+    }
+    return days;
+  }
+  function slotsFromSched(){
+    const S = data.medsSched, slots=[];
+    if (S.nasal.am) slots.push({id:'nasal_am', label:`${S.nasal.name} AM`});
+    if (S.nasal.pm) slots.push({id:'nasal_pm', label:`${S.nasal.name} PM`});
+    if (S.inhaler.am) slots.push({id:'inhaler_am', label:`${S.inhaler.name} AM`});
+    if (S.inhaler.pm) slots.push({id:'inhaler_pm', label:`${S.inhaler.name} PM`});
+    if (S.pill.daily) slots.push({id:'pill_daily', label:`${S.pill.name}`});
+    return slots;
+  }
+  function renderDailyGrid(){
+    const host = el('#dailyGrid'); host.innerHTML='';
+    const days = getLast7Days();
+    const slots = slotsFromSched();
+    const rangeStr = `${days[0].toLocaleDateString()} – ${days[6].toLocaleDateString()}`;
+    el('#weekRange').textContent = rangeStr;
+
+    if (slots.length===0){
+      host.innerHTML = '<small class="muted">No scheduled meds are enabled. Turn them on in Setup.</small>';
+      el('#compliancePct').textContent = '—%';
+      return;
+    }
+
+    let html = '<table><thead><tr><th>Medication</th>';
+    for (const d of days){ html += `<th class="nowrap">${d.toLocaleDateString(undefined,{weekday:'short'})}<br>${d.getMonth()+1}/${d.getDate()}</th>`; }
+    html += '</tr></thead><tbody>';
+
+    for (const s of slots){
+      html += `<tr><td>${s.label}</td>`;
+      for (const d of days){
+        const key = dayKey(d);
+        const taken = !!(data.medsDaily[key] && data.medsDaily[key][s.id]);
+        html += `<td data-cell="${key}:${s.id}">
+          <button class="btn inline" data-tgl="${key}:${s.id}">${taken?'✔':'✖'}</button>
+        </td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    host.innerHTML = html;
+
+    // Toggle handlers
+    host.addEventListener('click', dailyToggleHandler);
+
+    updateCompliance(days, slots);
+  }
+
+  function dailyToggleHandler(e){
+    const b = e.target.closest('button[data-tgl]');
+    if (!b) return;
+    const [key, slot] = b.dataset.tgl.split(':');
+    data.medsDaily[key] ||= {};
+    data.medsDaily[key][slot] = !data.medsDaily[key][slot];
+    persist();
+  }
+
+  function updateCompliance(days, slots){
+    let total=0, done=0;
+    for (const d of days){
+      const key = dayKey(d);
+      for (const s of slots){
+        total++;
+        if (data.medsDaily[key] && data.medsDaily[key][s.id]) done++;
+      }
+    }
+    const pct = total ? Math.round((done/total)*100) : 0;
+    el('#compliancePct').textContent = `${pct}%`;
+  }
+
+  // ---------- As-Needed ----------
+  const prnTime = el('#prnTime'); setNow(prnTime);
+  el('#prnNow').addEventListener('click', ()=> setNow(prnTime));
+  el('#savePrn').addEventListener('click', ()=>{
+    const entry = {
+      id: newId('prn'), when: prnTime.value ? new Date(prnTime.value).toISOString() : new Date().toISOString(),
+      type: el('#prnType').value, name: el('#prnName').value.trim(), notes: el('#prnNotes').value.trim()
+    };
+    data.medsPrn.push(entry);
+    persist();
+    el('#prnSavedMsg').textContent = 'Saved ✔';
+    setTimeout(()=>el('#prnSavedMsg').textContent='', 1800);
+    el('#prnName').value=''; el('#prnNotes').value='';
+  });
+
+  function renderRecentPrn(){
+    const host = el('#recentPrn');
+    const items = [...data.medsPrn].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10);
+    if (items.length===0){ host.innerHTML = '<small class="muted">No entries yet.</small>'; return; }
+    let html = '<table><thead><tr><th>When</th><th>Type</th><th>Details</th><th>Notes</th></tr></thead><tbody>';
+    for (const m of items){
+      html += `<tr>
+        <td class="nowrap">${fmt(m.when)}</td>
+        <td>${m.type}</td>
+        <td>${m.name ? m.name.replace(/</g,'&lt;') : ''}</td>
+        <td>${m.notes ? m.notes.replace(/</g,'&lt;') : ''}</td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    host.innerHTML = html;
+  }
+
+  // ---------- History ----------
+  function renderHistory(){
+    const host = el('#history');
+    if (data.visits.length===0){
+      host.innerHTML = '<small class="muted">No visits yet.</small>';
+      return;
+    }
+    const visitsSorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    let html = '';
+    for (const v of visitsSorted){
+      html += `<div class="card">
+        <div class="row">
+          <div><strong>${fmt(v.when)}</strong><br><small>${v.postAntiItch? 'Post anti-itch: '+v.postAntiItch : ''}</small></div>
+          <div><small>Left shots:</small> <strong>${v.leftCount}</strong></div>
+          <div><small>Right shots:</small> <strong>${v.rightCount}</strong></div>
+        </div>
+        ${v.notes ? `<div style="margin-top:6px"><small class="muted">Visit notes:</small><br>${v.notes.replace(/</g,'&lt;')}</div>` : ''}
+        <div style="margin-top:10px">
+          <table>
+            <thead><tr><th>Arm</th><th>#</th><th>Vial</th><th>Placement</th></tr></thead>
+            <tbody>`;
+      if (v.shots.length===0){
+        html += `<tr><td colspan="4"><small class="muted">No shot details recorded.</small></td></tr>`;
+      } else {
+        for (const s of v.shots){
+          html += `<tr>
+            <td>${s.side==='L'?'Left':'Right'}</td>
+            <td>${s.index}</td>
+            <td>${(s.vial||'').replace(/</g,'&lt;')}</td>
+            <td>${s.place}</td>
+          </tr>`;
+        }
+      }
+      html += `</tbody></table>
+        </div>
+        <div style="margin-top:10px">
+          <table>
+            <thead><tr><th>Check-in</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead>
+            <tbody>`;
+      const checks = data.checks.filter(c=>c.visitId===v.id).sort((a,b)=> new Date(a.when)-new Date(b.when));
+      if (checks.length===0){
+        html += `<tr><td colspan="6"><small class="muted">No check-ins logged.</small></td></tr>`;
+      } else {
+        for (const c of checks){
+          html += `<tr>
+            <td class="nowrap">${fmt(c.when)}</td>
+            <td>${c.whealMM ?? ''}</td>
+            <td>${c.itch ?? ''}</td>
+            <td>${c.redness ?? ''}</td>
+            <td>${c.antiItch ?? ''}</td>
+            <td>${c.notes ? c.notes.replace(/</g,'&lt;') : ''}</td>
+          </tr>`;
+        }
+      }
+      html += `</tbody></table></div></div>`;
+    }
+    host.innerHTML = html;
+  }
+
+  // ---------- Export / Import ----------
+  function download(filename, text) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'}));
+    a.download = filename;
+    a.click();
+    setTimeout(()=> URL.revokeObjectURL(a.href), 500);
+  }
+  el('#exportJSON').addEventListener('click', ()=> download('allergy-tracker.json', JSON.stringify(data,null,2)));
+  el('#exportCSV').addEventListener('click', ()=>{
+    const rows = [['check_id','visit_id','visit_time','check_time','left_shots','right_shots','wheal_mm','itch','redness','anti_itch','notes']];
+    for (const c of data.checks){
+      const v = data.visits.find(x=>x.id===c.visitId);
+      rows.push([
+        c.id,
+        c.visitId,
+        v ? v.when : '',
+        c.when,
+        v ? v.leftCount : '',
+        v ? v.rightCount : '',
+        c.whealMM ?? '',
+        c.itch ?? '',
+        c.redness ?? '',
+        c.antiItch ?? '',
+        (c.notes ?? '').replaceAll('"','""')
+      ]);
+    }
+    const csv = rows.map(r => r.map(x=>{
+      const s = (x===null || x===undefined) ? '' : String(x);
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    }).join(',')).join('\n');
+    download('reactions.csv', csv);
+  });
+  el('#importBtn').addEventListener('click', ()=>{
+    const file = el('#importFile').files?.[0];
+    if (!file){ alert('Choose a JSON file first.'); return; }
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      try{
+        const incoming = JSON.parse(reader.result);
+        if (!incoming) throw new Error('Invalid JSON');
+        data = incoming;
+        persist();
+        alert('Import complete.');
+      } catch(e){ alert('Import failed: '+e.message); }
+    };
+    reader.readAsText(file);
+  });
+  el('#wipeAll').addEventListener('click', ()=>{
+    if (!confirm('Erase ALL locally stored data? This cannot be undone.')) return;
+    data = {
+      vials:["","",""], visits:[], checks:[],
+      medsSched:{ nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} },
+      medsDaily:{}, medsPrn:[]
+    };
+    persist();
+    alert('All data erased from this browser.');
+  });
+
+  // ---------- Refresh ----------
+  function refreshAll(){
+    populateVisitSelect();
+    renderRecentChecks();
+    renderRecentPrn();
+    renderHistory();
+    renderDailyGrid();
+  }
+
+  // Initial UI load
+  loadVialsUI();
+  loadSchedUI();
+  renderShotRows();
+  refreshAll();
+
+})();
+</script>
+</body>
+</html>
