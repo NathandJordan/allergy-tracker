@@ -38,15 +38,26 @@
   .switch { display:inline-flex; align-items:center; gap:8px; }
   .switch input { width:auto; }
   .tiny { font-size:12px; }
+
+  /* Daily meds: future lock */
   td.future { opacity:.45; }
   td.future button { pointer-events:none; }
+
+  /* Banners */
+  #alerts { position: sticky; top: 64px; z-index: 9; }
+  .banner { border-radius: 12px; padding: 10px 12px; margin: 12px 0; display:flex; gap:10px; align-items:center; justify-content: space-between; }
+  .banner .text { font-size: 14px; }
+  .banner .actions { display:flex; gap:8px; }
+  .banner.warn { background: #45220a; border:1px solid #9a5a12; }
+  .banner.err  { background: #3a0d0d; border:1px solid #b91c1c; }
+  .banner.info { background: #0b2a3a; border:1px solid #0ea5b8; }
 </style>
 </head>
 <body>
 <header>
   <h1>Allergy Shot & Meds Tracker</h1>
   <nav id="tabs">
-    <button data-tab="setup" class="active">Setup & Settings</button>
+    <button data-tab="setup" class="active">Setup Vials & Meds</button>
     <button data-tab="visit">New Shot Visit</button>
     <button data-tab="checkin">Reaction Check-In</button>
     <button data-tab="dailymeds">Daily Meds</button>
@@ -57,7 +68,10 @@
 </header>
 
 <main>
-  <!-- Setup & Settings -->
+  <!-- Alerts go here -->
+  <div id="alerts"></div>
+
+  <!-- Setup -->
   <section id="tab-setup" class="card">
     <h2 class="section-title">Setup Vials & Scheduled Meds</h2>
     <div class="card">
@@ -92,25 +106,6 @@
       </div>
       <button class="btn primary" id="saveSched">Save Scheduled Meds</button>
       <small id="schedSavedMsg" class="muted"></small>
-    </div>
-
-    <div class="card">
-      <h3 class="section-title">Notification Settings (Shortcuts)</h3>
-      <div class="row">
-        <div class="switch"><input id="autoRemind" type="checkbox" /> <label for="autoRemind"><strong>Auto-schedule shot follow-up reminders</strong> after saving a visit</label></div>
-      </div>
-      <div class="row">
-        <div><label class="tiny">Reminders to create</label>
-          <div class="chips">
-            <span class="chip" data-offhour="1">+1h</span>
-            <span class="chip" data-offhour="4">+4h</span>
-            <span class="chip" data-offhour="24">+24h</span>
-            <span class="chip" data-offhour="48">+48h</span>
-          </div>
-          <small class="muted">Requires Shortcuts named <em>Allergy Shot Followups</em> (one-time setup).</small>
-        </div>
-      </div>
-      <small id="notifySavedMsg" class="muted"></small>
     </div>
   </section>
 
@@ -206,7 +201,7 @@
         <label for="redness">Redness</label>
         <select id="redness">
           <option value="">—</option>
-          <option>No</option>
+          <option>No</</option>
           <option>Yes</option>
         </select>
       </div>
@@ -326,38 +321,36 @@
   const el = s => document.querySelector(s);
   const els = s => Array.from(document.querySelectorAll(s));
   const fmt = d => new Date(d).toLocaleString();
-  const STORE_KEY = 'allergyTrackerData:v4'; // bumped for Settings
+  const STORE_KEY = 'allergyTrackerData:v5'; // bumped (adds banners)
+  const AM_DUE_HOUR = 7;   // AM meds due after 7:00
+  const PM_DUE_HOUR = 20;  // PM & once-daily due after 20:00
+  const FOLLOWUP_OFFSETS = [1,4,24,48]; // hours
+
   let data = load();
 
+  function fresh(){
+    return {
+      vials: ["", "", ""],
+      visits: [],     // {id, when, postAntiItch, leftCount, rightCount, shots:[{side,index,vial,place}], notes}
+      checks: [],     // {id, visitId, when, whealMM, itch, redness, antiItch, notes}
+      medsSched: { nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} },
+      medsDaily: {},  // YYYY-MM-DD -> {slotId:true}
+      medsPrn: []
+    };
+  }
   function load(){
-    try {
+    try{
       const raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return fresh();
+      if(!raw) return fresh();
       const parsed = JSON.parse(raw);
-      parsed.vials ||= ["", "", ""];
+      parsed.vials ||= ["","",""];
       parsed.visits ||= [];
       parsed.checks ||= [];
       parsed.medsSched ||= { nasal:{name:"Nasal Spray",am:true,pm:true}, inhaler:{name:"Inhaler",am:true,pm:true}, pill:{name:"Allergy Pill",daily:true} };
       parsed.medsDaily ||= {};
       parsed.medsPrn ||= [];
-      parsed.settings ||= { autoRemind:false, reminderOffsets:[1,4,24,48] };
       return parsed;
-    } catch { return fresh(); }
-  }
-  function fresh(){
-    return {
-      vials: ["", "", ""],
-      visits: [],
-      checks: [],
-      medsSched: {
-        nasal: { name: "Nasal Spray", am: true, pm: true },
-        inhaler: { name: "Inhaler", am: true, pm: true },
-        pill: { name: "Allergy Pill", daily: true }
-      },
-      medsDaily: {},
-      medsPrn: [],
-      settings: { autoRemind:false, reminderOffsets:[1,4,24,48] }
-    };
+    }catch{ return fresh(); }
   }
   function persist(){ localStorage.setItem(STORE_KEY, JSON.stringify(data)); refreshAll(); }
   function newId(p){ return p + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36); }
@@ -365,12 +358,26 @@
     const n = new Date(date ?? Date.now());
     return new Date(n.getTime() - n.getTimezoneOffset()*60000).toISOString().slice(0,16);
   }
-
-  // --- hash deep-linking to tabs (e.g. #dailymeds, #checkin)
-  const hashTab = location.hash.replace('#','');
-  if (hashTab) {
-    const btn = document.querySelector(`#tabs button[data-tab="${hashTab}"]`);
-    if (btn) btn.click();
+  function startOfWeekMonday(d){
+    const tmp = new Date(d); tmp.setHours(0,0,0,0);
+    const diff = (tmp.getDay()+6)%7; tmp.setDate(tmp.getDate()-diff);
+    return tmp;
+  }
+  function getWeekDays(offsetWeeks=0){
+    const monday = startOfWeekMonday(new Date());
+    monday.setDate(monday.getDate()+offsetWeeks*7);
+    const days=[]; for(let i=0;i<7;i++){ const d=new Date(monday); d.setDate(monday.getDate()+i); days.push(d); }
+    return days;
+  }
+  function dayKey(d){ return d.toISOString().slice(0,10); }
+  function slotsFromSched(){
+    const S=data.medsSched, slots=[];
+    if(S.nasal?.am) slots.push({id:'nasal_am', label:`${S.nasal.name} AM`});
+    if(S.nasal?.pm) slots.push({id:'nasal_pm', label:`${S.nasal.name} PM`});
+    if(S.inhaler?.am) slots.push({id:'inhaler_am', label:`${S.inhaler.name} AM`});
+    if(S.inhaler?.pm) slots.push({id:'inhaler_pm', label:`${S.inhaler.name} PM`});
+    if(S.pill?.daily) slots.push({id:'pill_daily', label:`${S.pill.name}`});
+    return slots;
   }
 
   // ---------- Tabs ----------
@@ -381,17 +388,14 @@
     els('main > section').forEach(sec => sec.hidden = !sec.id.endsWith(b.dataset.tab));
   });
 
-  // ---------- Setup: Vials ----------
-  const vialInputs = [el('#vial1'), el('#vial2'), el('#vial3')];
-  function loadVialsUI(){ data.vials.forEach((v,i)=>{ vialInputs[i].value = v || ""; }); }
+  // ---------- Setup ----------
+  const vialInputs=[el('#vial1'),el('#vial2'),el('#vial3')];
+  function loadVialsUI(){ data.vials.forEach((v,i)=> vialInputs[i].value = v || ""); }
   el('#saveVials').addEventListener('click', ()=>{
     data.vials = vialInputs.map(i=>i.value.trim());
-    persist();
-    el('#vialsSavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#vialsSavedMsg').textContent='', 1800);
+    persist(); el('#vialsSavedMsg').textContent='Saved ✔'; setTimeout(()=>el('#vialsSavedMsg').textContent='',1500);
   });
 
-  // ---------- Setup: Scheduled Meds ----------
   function loadSchedUI(){
     el('#sched-nasal').value = data.medsSched.nasal.name;
     el('#sched-nasal-am').checked = !!data.medsSched.nasal.am;
@@ -408,479 +412,271 @@
       inhaler: { name: el('#sched-inhaler').value.trim() || 'Inhaler', am: el('#sched-inhaler-am').checked, pm: el('#sched-inhaler-pm').checked },
       pill: { name: el('#sched-pill').value.trim() || 'Allergy Pill', daily: el('#sched-pill-daily').checked }
     };
-    persist();
-    el('#schedSavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#schedSavedMsg').textContent='', 1800);
-    renderDailyGrid();
+    persist(); el('#schedSavedMsg').textContent='Saved ✔'; setTimeout(()=>el('#schedSavedMsg').textContent='',1500);
   });
 
-  // ---------- Settings: Auto reminders ----------
-  const autoRemind = el('#autoRemind');
-  const offsetChips = els('[data-offhour]');
-  function loadSettingsUI(){
-    autoRemind.checked = !!data.settings.autoRemind;
-    offsetChips.forEach(c=>{
-      const h = parseInt(c.dataset.offhour,10);
-      c.setAttribute('aria-pressed', data.settings.reminderOffsets.includes(h) ? 'true' : 'false');
-    });
-  }
-  autoRemind.addEventListener('change', ()=>{
-    data.settings.autoRemind = autoRemind.checked;
-    persist();
-    el('#notifySavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#notifySavedMsg').textContent='', 1200);
-  });
-  offsetChips.forEach(c=>{
-    c.addEventListener('click', ()=>{
-      const h = parseInt(c.dataset.offhour,10);
-      const arr = data.settings.reminderOffsets;
-      const i = arr.indexOf(h);
-      if (i>=0) arr.splice(i,1); else arr.push(h);
-      arr.sort((a,b)=>a-b);
-      c.setAttribute('aria-pressed', i<0 ? 'true' : 'false');
-      persist();
-      el('#notifySavedMsg').textContent = 'Saved ✔';
-      setTimeout(()=>el('#notifySavedMsg').textContent='', 1200);
-    });
-  });
-
-  // ---------- Visit ----------
-  const visitDate = el('#visitDate');
-  const visitAntiItch = el('#visitAntiItch');
-  const visitNotes = el('#visitNotes');
-  let leftShots = 0, rightShots = 0;
-
-  visitDate.value = toLocalDatetimeValue();
-
-  els('[data-left]').forEach(chip=>{
-    chip.addEventListener('click', ()=>{
-      leftShots = parseInt(chip.dataset.left,10);
-      els('[data-left]').forEach(c=> c.setAttribute('aria-pressed', c===chip ? 'true' : 'false'));
-      renderShotRows();
-    });
-  });
-  els('[data-right]').forEach(chip=>{
-    chip.addEventListener('click', ()=>{
-      rightShots = parseInt(chip.dataset.right,10);
-      els('[data-right]').forEach(c=> c.setAttribute('aria-pressed', c===chip ? 'true' : 'false'));
-      renderShotRows();
-    });
-  });
-
-  function shotRow(side, idx){
-    const vialOpts = data.vials.map(v => `<option ${v?'':'disabled'}>${v || '(Unnamed vial)'}</option>`).join('');
+  // ---------- Visits ----------
+  const visitDate=el('#visitDate'), visitAntiItch=el('#visitAntiItch'), visitNotes=el('#visitNotes');
+  let leftShots=0,rightShots=0; visitDate.value=toLocalDatetimeValue();
+  els('[data-left]').forEach(chip=> chip.addEventListener('click',()=>{ leftShots=+chip.dataset.left; els('[data-left]').forEach(c=>c.setAttribute('aria-pressed', c===chip?'true':'false')); renderShotRows(); }));
+  els('[data-right]').forEach(chip=> chip.addEventListener('click',()=>{ rightShots=+chip.dataset.right; els('[data-right]').forEach(c=>c.setAttribute('aria-pressed', c===chip?'true':'false')); renderShotRows(); }));
+  function shotRow(side,idx){
+    const vialOpts = data.vials.map(v=>`<option ${v?'':'disabled'}>${v||'(Unnamed vial)'}</option>`).join('');
     return `<div class="row" data-shot="${side}${idx}">
-      <div>
-        <label>${side==='L'?'Left':'Right'} arm — Shot ${idx}: Vial</label>
-        <select class="shot-vial">${vialOpts}</select>
-      </div>
-      <div>
-        <label>Placement</label>
-        <select class="shot-place">
-          <option>Upper</option>
-          <option>Lower</option>
-        </select>
-      </div>
+      <div><label>${side==='L'?'Left':'Right'} arm — Shot ${idx}: Vial</label><select class="shot-vial">${vialOpts}</select></div>
+      <div><label>Placement</label><select class="shot-place"><option>Upper</option><option>Lower</option></select></div>
     </div>`;
   }
-
   function renderShotRows(){
-    const host = el('#shotRowsHost');
-    let html = '';
-    for (let i=1;i<=leftShots;i++) html += shotRow('L', i);
-    for (let i=1;i<=rightShots;i++) html += shotRow('R', i);
+    const host=el('#shotRowsHost'); let html='';
+    for(let i=1;i<=leftShots;i++) html+=shotRow('L',i);
+    for(let i=1;i<=rightShots;i++) html+=shotRow('R',i);
     host.innerHTML = html || '<small class="muted">Set left/right shot counts to configure vials & placements.</small>';
   }
-
-  function launchShortcutForFollowups(whenISO){
-    if (!data.settings.autoRemind || !data.settings.reminderOffsets?.length) return;
-    try {
-      const payload = encodeURIComponent(JSON.stringify({
-        when: whenISO,
-        offsets: data.settings.reminderOffsets
-      }));
-      const url = `shortcuts://run-shortcut?name=${encodeURIComponent('Allergy Shot Followups')}&input=text&text=${payload}`;
-      // hand off to Shortcuts; iOS will swap apps and then the user can return
-      window.location.href = url;
-    } catch (e) {
-      console.warn('Shortcut launch failed:', e);
-    }
-  }
-
   el('#saveVisit').addEventListener('click', ()=>{
     const when = visitDate.value ? new Date(visitDate.value).toISOString() : new Date().toISOString();
-    const shots = [];
-    for (let i=1;i<=leftShots;i++){
-      const row = el(`[data-shot="L${i}"]`);
-      if (row){
-        const vial = row.querySelector('.shot-vial')?.value || '';
-        const place = row.querySelector('.shot-place')?.value || '';
-        shots.push({ side:'L', index:i, vial, place });
-      }
-    }
-    for (let i=1;i<=rightShots;i++){
-      const row = el(`[data-shot="R${i}"]`);
-      if (row){
-        const vial = row.querySelector('.shot-vial')?.value || '';
-        const place = row.querySelector('.shot-place')?.value || '';
-        shots.push({ side:'R', index:i, vial, place });
-      }
-    }
-    const v = {
-      id: newId('visit'),
-      when,
-      postAntiItch: visitAntiItch.value || '',
-      leftCount: leftShots|0,
-      rightCount: rightShots|0,
-      shots,
-      notes: visitNotes.value.trim()
-    };
-    data.visits.push(v);
-    persist();
-    el('#visitSavedMsg').textContent = 'Saved ✔  (scheduling reminders…)';
-    setTimeout(()=>el('#visitSavedMsg').textContent='', 2200);
-
-    // Kick off Shortcut to create reminders
-    launchShortcutForFollowups(when);
+    const shots=[];
+    for(let i=1;i<=leftShots;i++){ const row=el(`[data-shot="L${i}"]`); if(row){ shots.push({side:'L',index:i,vial:row.querySelector('.shot-vial').value||'',place:row.querySelector('.shot-place').value||''}); } }
+    for(let i=1;i<=rightShots;i++){ const row=el(`[data-shot="R${i}"]`); if(row){ shots.push({side:'R',index:i,vial:row.querySelector('.shot-vial').value||'',place:row.querySelector('.shot-place').value||''}); } }
+    data.visits.push({ id:newId('visit'), when, postAntiItch: visitAntiItch.value||'', leftCount:leftShots|0, rightCount:rightShots|0, shots, notes: visitNotes.value.trim() });
+    persist(); el('#visitSavedMsg').textContent='Saved ✔'; setTimeout(()=>el('#visitSavedMsg').textContent='',1500);
   });
 
-  // ---------- Check-In ----------
-  const checkVisit = el('#checkVisit');
-  const checkTime = el('#checkTime');
-  const whealSize = el('#whealSize');
-  const itch = el('#itch');
-  const redness = el('#redness');
-  const antiItch = el('#antiItch');
-  const checkNotes = el('#checkNotes');
-
+  // ---------- Check-ins ----------
+  const checkVisit=el('#checkVisit'), checkTime=el('#checkTime'), whealSize=el('#whealSize'), itch=el('#itch'), redness=el('#redness'), antiItch=el('#antiItch'), checkNotes=el('#checkNotes');
   function populateVisitSelect(){
-    checkVisit.innerHTML = '';
-    const sorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
-    if (sorted.length===0){
-      checkVisit.innerHTML = '<option value="">No visits yet</option>';
-      checkVisit.disabled = true;
-      return;
-    }
-    checkVisit.disabled = false;
-    for (const v of sorted){
-      const shotsTxt = `L:${v.leftCount} R:${v.rightCount}`;
-      const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = `${fmt(v.when)} — ${shotsTxt}${v.postAntiItch? ' — Anti-itch:'+v.postAntiItch : ''}`;
-      checkVisit.appendChild(opt);
-    }
+    checkVisit.innerHTML=''; const sorted=[...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    if(sorted.length===0){ checkVisit.innerHTML='<option value="">No visits yet</option>'; checkVisit.disabled=true; return; }
+    checkVisit.disabled=false;
+    for(const v of sorted){ const opt=document.createElement('option'); opt.value=v.id; opt.textContent = `${fmt(v.when)} — L:${v.leftCount} R:${v.rightCount}${v.postAntiItch? ' — Anti-itch:'+v.postAntiItch:''}`; checkVisit.appendChild(opt); }
   }
   checkTime.value = toLocalDatetimeValue();
-  els('[data-offset]').forEach(chip=>{
-    chip.addEventListener('click', ()=>{
-      const baseISO = (()=>{
-        const id = checkVisit.value;
-        const v = data.visits.find(x=>x.id===id);
-        return v?.when || new Date().toISOString();
-      })();
-      const dt = new Date(baseISO);
-      dt.setHours(dt.getHours() + parseInt(chip.dataset.offset,10));
-      checkTime.value = toLocalDatetimeValue(dt);
-    });
-  });
+  els('[data-offset]').forEach(chip => chip.addEventListener('click', ()=>{
+    const v = data.visits.find(x=>x.id===checkVisit.value);
+    const baseISO = v?.when || new Date().toISOString();
+    const dt=new Date(baseISO); dt.setHours(dt.getHours()+parseInt(chip.dataset.offset,10));
+    checkTime.value = toLocalDatetimeValue(dt);
+  }));
   els('[data-now]').forEach(chip=> chip.addEventListener('click', ()=> checkTime.value = toLocalDatetimeValue()));
-
   el('#saveCheck').addEventListener('click', ()=>{
-    if (!checkVisit.value){ alert('Please select a visit.'); return; }
-    const record = {
-      id: newId('check'),
+    if(!checkVisit.value){ alert('Please select a visit.'); return; }
+    data.checks.push({
+      id:newId('check'),
       visitId: checkVisit.value,
       when: checkTime.value ? new Date(checkTime.value).toISOString() : new Date().toISOString(),
       whealMM: whealSize.value ? Number(whealSize.value) : null,
-      itch: itch.value || null,
-      redness: redness.value || null,
-      antiItch: antiItch.value || null,
+      itch: itch.value || null, redness: redness.value || null, antiItch: antiItch.value || null,
       notes: checkNotes.value.trim() || null
-    };
-    data.checks.push(record);
-    persist();
-    el('#checkSavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#checkSavedMsg').textContent='', 1800);
+    });
+    persist(); el('#checkSavedMsg').textContent='Saved ✔'; setTimeout(()=>el('#checkSavedMsg').textContent='',1500);
     whealSize.value=''; itch.value=''; redness.value=''; antiItch.value=''; checkNotes.value='';
   });
 
   function renderRecentChecks(){
-    const box = el('#recentChecks');
-    const sorted = [...data.checks].sort((a,b)=> new Date(b.when) - new Date(a.when)).slice(-10).reverse();
-    if (sorted.length===0){ box.innerHTML = '<small class="muted">No check-ins yet.</small>'; return; }
-    let html = '<table><thead><tr><th>When</th><th>Visit</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead><tbody>';
-    for (const c of sorted){
-      const v = data.visits.find(x=>x.id===c.visitId);
-      html += `<tr>
-        <td class="nowrap">${fmt(c.when)}</td>
-        <td>${v ? `${fmt(v.when)} (L:${v.leftCount} R:${v.rightCount})` : '—'}</td>
-        <td>${c.whealMM ?? ''}</td>
-        <td>${c.itch ?? ''}</td>
-        <td>${c.redness ?? ''}</td>
-        <td>${c.antiItch ?? ''}</td>
-        <td>${c.notes ? c.notes.replace(/</g,'&lt;') : ''}</td>
-      </tr>`;
+    const box=el('#recentChecks');
+    const sorted=[...data.checks].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10).reverse();
+    if(sorted.length===0){ box.innerHTML='<small class="muted">No check-ins yet.</small>'; return; }
+    let html='<table><thead><tr><th>When</th><th>Visit</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead><tbody>';
+    for(const c of sorted){ const v=data.visits.find(x=>x.id===c.visitId);
+      html += `<tr><td class="nowrap">${fmt(c.when)}</td><td>${v?`${fmt(v.when)} (L:${v.leftCount} R:${v.rightCount})`:'—'}</td><td>${c.whealMM??''}</td><td>${c.itch??''}</td><td>${c.redness??''}</td><td>${c.antiItch??''}</td><td>${c.notes?c.notes.replace(/</g,'&lt;'):''}</td></tr>`;
     }
-    html += '</tbody></table>';
-    box.innerHTML = html;
+    html+='</tbody></table>'; box.innerHTML=html;
   }
 
-  // ---------- Daily Meds (Mon → Sun with week nav) ----------
-  let weekOffset = 0; // 0=this week, -1=last, +1=next...
-
-  function startOfWeekMonday(d) {
-    const tmp = new Date(d);
-    tmp.setHours(0,0,0,0);
-    const dow = tmp.getDay();      // Sun=0..Sat=6
-    const diff = (dow + 6) % 7;    // days since Monday
-    tmp.setDate(tmp.getDate() - diff);
-    return tmp;
-  }
-  function getWeekDays(offsetWeeks = 0) {
-    const monday = startOfWeekMonday(new Date());
-    monday.setDate(monday.getDate() + offsetWeeks * 7);
-    const days = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      days.push(d);
-    }
-    return days; // Mon..Sun
-  }
-  function dayKey(d){ return d.toISOString().slice(0,10); } // YYYY-MM-DD
-  function slotsFromSched(){
-    const S = data.medsSched, slots=[];
-    if (S.nasal.am) slots.push({id:'nasal_am', label:`${S.nasal.name} AM`});
-    if (S.nasal.pm) slots.push({id:'nasal_pm', label:`${S.nasal.name} PM`});
-    if (S.inhaler.am) slots.push({id:'inhaler_am', label:`${S.inhaler.name} AM`});
-    if (S.inhaler.pm) slots.push({id:'inhaler_pm', label:`${S.inhaler.name} PM`});
-    if (S.pill.daily) slots.push({id:'pill_daily', label:`${S.pill.name}`});
-    return slots;
-  }
-
+  // ---------- Daily Meds (Mon→Sun) ----------
+  let weekOffset=0;
   function renderDailyGrid(){
-    const host = el('#dailyGrid'); host.innerHTML='';
-    const days = getWeekDays(weekOffset);
-    const slots = slotsFromSched();
-    const rangeStr = `${days[0].toLocaleDateString()} – ${days[6].toLocaleDateString()}`;
-    el('#weekRange').textContent = rangeStr;
-
-    if (slots.length===0){
-      host.innerHTML = '<small class="muted">No scheduled meds are enabled. Turn them on in Setup.</small>';
-      el('#compliancePct').textContent = '—%';
-      return;
-    }
-
-    const now = new Date(); now.setHours(0,0,0,0);
-
-    let html = '<table><thead><tr><th>Medication</th>';
-    for (const d of days){
-      html += `<th class="nowrap" title="${d.toDateString()}">${d.toLocaleDateString(undefined,{weekday:'short'})}<br>${d.getMonth()+1}/${d.getDate()}</th>`;
-    }
-    html += '</tr></thead><tbody>';
-
-    for (const s of slots){
-      html += `<tr><td>${s.label}</td>`;
-      for (const d of days){
-        const key = dayKey(d);
-        const taken = !!(data.medsDaily[key] && data.medsDaily[key][s.id]);
-        const isFuture = (d > now);
-        html += `<td data-cell="${key}:${s.id}" class="${isFuture?'future':''}">
-          <button class="btn inline" data-tgl="${key}:${s.id}" ${isFuture?'disabled':''}>${taken?'✔':'✖'}</button>
-        </td>`;
+    const host=el('#dailyGrid'); host.innerHTML='';
+    const days=getWeekDays(weekOffset), slots=slotsFromSched();
+    el('#weekRange').textContent = `${days[0].toLocaleDateString()} – ${days[6].toLocaleDateString()}`;
+    if(slots.length===0){ host.innerHTML='<small class="muted">No scheduled meds are enabled. Turn them on in Setup.</small>'; el('#compliancePct').textContent='—%'; return; }
+    const now=new Date(); now.setHours(0,0,0,0);
+    let html='<table><thead><tr><th>Medication</th>';
+    for(const d of days){ html+=`<th class="nowrap" title="${d.toDateString()}">${d.toLocaleDateString(undefined,{weekday:'short'})}<br>${d.getMonth()+1}/${d.getDate()}</th>`; }
+    html+='</tr></thead><tbody>';
+    for(const s of slots){
+      html+=`<tr><td>${s.label}</td>`;
+      for(const d of days){
+        const key=dayKey(d);
+        const taken=!!(data.medsDaily[key] && data.medsDaily[key][s.id]);
+        const isFuture=(d>now);
+        html+=`<td data-cell="${key}:${s.id}" class="${isFuture?'future':''}"><button class="btn inline" data-tgl="${key}:${s.id}" ${isFuture?'disabled':''}>${taken?'✔':'✖'}</button></td>`;
       }
-      html += '</tr>';
+      html+='</tr>';
     }
-    html += '</tbody></table>';
-    host.innerHTML = html;
-
-    host.addEventListener('click', dailyToggleHandler, { once: true });
-
+    html+='</tbody></table>'; host.innerHTML=html;
+    host.addEventListener('click', dailyToggleHandler, { once:true });
     updateCompliance(days, slots);
   }
-
   function dailyToggleHandler(e){
-    const b = e.target.closest('button[data-tgl]');
-    if (!b || b.disabled) return;
-    const [key, slot] = b.dataset.tgl.split(':');
-    data.medsDaily[key] ||= {};
-    data.medsDaily[key][slot] = !data.medsDaily[key][slot];
-    persist();
+    const b=e.target.closest('button[data-tgl]'); if(!b||b.disabled) return;
+    const [key,slot]=b.dataset.tgl.split(':'); data.medsDaily[key] ||= {}; data.medsDaily[key][slot]=!data.medsDaily[key][slot]; persist();
   }
-
   function updateCompliance(days, slots){
-    const today = new Date(); today.setHours(0,0,0,0);
-    let total=0, done=0;
-    for (const d of days){
-      const key = dayKey(d);
-      const countThisDay =
-        (weekOffset < 0) ? true :
-        (weekOffset > 0) ? false :
-        (d <= today);
-
-      if (!countThisDay) continue;
-
-      for (const s of slots){
-        total++;
-        if (data.medsDaily[key] && data.medsDaily[key][s.id]) done++;
-      }
+    const today=new Date(); today.setHours(0,0,0,0);
+    let total=0,done=0;
+    for(const d of days){
+      const countThisDay = (weekOffset<0) ? true : (weekOffset>0) ? false : (d<=today);
+      if(!countThisDay) continue;
+      const key=dayKey(d);
+      for(const s of slots){ total++; if(data.medsDaily[key] && data.medsDaily[key][s.id]) done++; }
     }
     el('#compliancePct').textContent = total ? `${Math.round((done/total)*100)}%` : '—%';
   }
-
   function wireWeekNav(){
-    el('#prevWeek').addEventListener('click', ()=>{ weekOffset -= 1; renderDailyGrid(); });
-    el('#nextWeek').addEventListener('click', ()=>{ weekOffset += 1; renderDailyGrid(); });
-    el('#todayWeek').addEventListener('click', ()=>{ weekOffset = 0; renderDailyGrid(); });
+    el('#prevWeek').addEventListener('click', ()=>{ weekOffset-=1; renderDailyGrid(); renderAlerts(); });
+    el('#nextWeek').addEventListener('click', ()=>{ weekOffset+=1; renderDailyGrid(); renderAlerts(); });
+    el('#todayWeek').addEventListener('click', ()=>{ weekOffset=0; renderDailyGrid(); renderAlerts(); });
   }
 
   // ---------- As-Needed ----------
-  const prnTime = el('#prnTime'); prnTime.value = toLocalDatetimeValue();
-  el('#prnNow').addEventListener('click', ()=> prnTime.value = toLocalDatetimeValue());
+  const prnTime=el('#prnTime'); if(prnTime) prnTime.value = toLocalDatetimeValue();
+  el('#prnNow')?.addEventListener('click', ()=> prnTime.value = toLocalDatetimeValue());
   el('#savePrn').addEventListener('click', ()=>{
-    const entry = {
-      id: newId('prn'),
-      when: prnTime.value ? new Date(prnTime.value).toISOString() : new Date().toISOString(),
-      type: el('#prnType').value,
-      name: el('#prnName').value.trim(),
-      notes: el('#prnNotes').value.trim()
-    };
-    data.medsPrn.push(entry);
-    persist();
-    el('#prnSavedMsg').textContent = 'Saved ✔';
-    setTimeout(()=>el('#prnSavedMsg').textContent='', 1800);
+    data.medsPrn.push({ id:newId('prn'), when: prnTime.value ? new Date(prnTime.value).toISOString() : new Date().toISOString(), type: el('#prnType').value, name: el('#prnName').value.trim(), notes: el('#prnNotes').value.trim() });
+    persist(); el('#prnSavedMsg').textContent='Saved ✔'; setTimeout(()=>el('#prnSavedMsg').textContent='',1500);
     el('#prnName').value=''; el('#prnNotes').value='';
   });
-
   function renderRecentPrn(){
-    const host = el('#recentPrn');
-    const items = [...data.medsPrn].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10);
-    if (items.length===0){ host.innerHTML = '<small class="muted">No entries yet.</small>'; return; }
-    let html = '<table><thead><tr><th>When</th><th>Type</th><th>Details</th><th>Notes</th></tr></thead><tbody>';
-    for (const m of items){
-      html += `<tr>
-        <td class="nowrap">${fmt(m.when)}</td>
-        <td>${m.type}</td>
-        <td>${m.name ? m.name.replace(/</g,'&lt;') : ''}</td>
-        <td>${m.notes ? m.notes.replace(/</g,'&lt;') : ''}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-    host.innerHTML = html;
+    const host=el('#recentPrn'); if(!host) return;
+    const items=[...data.medsPrn].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10);
+    if(items.length===0){ host.innerHTML='<small class="muted">No entries yet.</small>'; return; }
+    let html='<table><thead><tr><th>When</th><th>Type</th><th>Details</th><th>Notes</th></tr></thead><tbody>';
+    for(const m of items){ html+=`<tr><td class="nowrap">${fmt(m.when)}</td><td>${m.type}</td><td>${m.name?m.name.replace(/</g,'&lt;'):''}</td><td>${m.notes?m.notes.replace(/</g,'&lt;'):''}</td></tr>`; }
+    html+='</tbody></table>'; host.innerHTML=html;
   }
 
   // ---------- History ----------
   function renderHistory(){
-    const host = el('#history');
-    if (data.visits.length===0){
-      host.innerHTML = '<small class="muted">No visits yet.</small>';
-      return;
+    const host=el('#history');
+    if(data.visits.length===0){ host.innerHTML='<small class="muted">No visits yet.</small>'; return; }
+    const visitsSorted=[...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    let html='';
+    for(const v of visitsSorted){
+      html+=`<div class="card"><div class="row">
+        <div><strong>${fmt(v.when)}</strong><br><small>${v.postAntiItch? 'Post anti-itch: '+v.postAntiItch : ''}</small></div>
+        <div><small>Left shots:</small> <strong>${v.leftCount}</strong></div>
+        <div><small>Right shots:</small> <strong>${v.rightCount}</strong></div>
+      </div>
+      ${v.notes ? `<div style="margin-top:6px"><small class="muted">Visit notes:</small><br>${v.notes.replace(/</g,'&lt;')}</div>` : ''}
+      <div style="margin-top:10px"><table><thead><tr><th>Arm</th><th>#</th><th>Vial</th><th>Placement</th></tr></thead><tbody>`;
+      if(v.shots.length===0){ html+=`<tr><td colspan="4"><small class="muted">No shot details recorded.</small></td></tr>`; }
+      else for(const s of v.shots){ html+=`<tr><td>${s.side==='L'?'Left':'Right'}</td><td>${s.index}</td><td>${(s.vial||'').replace(/</g,'&lt;')}</td><td>${s.place}</td></tr>`; }
+      html+=`</tbody></table></div>
+      <div style="margin-top:10px"><table><thead><tr><th>Check-in</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead><tbody>`;
+      const checks=data.checks.filter(c=>c.visitId===v.id).sort((a,b)=> new Date(a.when)-new Date(b.when));
+      if(checks.length===0){ html+=`<tr><td colspan="6"><small class="muted">No check-ins logged.</small></td></tr>`; }
+      else for(const c of checks){ html+=`<tr><td class="nowrap">${fmt(c.when)}</td><td>${c.whealMM??''}</td><td>${c.itch??''}</td><td>${c.redness??''}</td><td>${c.antiItch??''}</td><td>${c.notes?c.notes.replace(/</g,'&lt;'):''}</td></tr>`; }
+      html+=`</tbody></table></div></div>`;
     }
-    const visitsSorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
-    let html = '';
-    for (const v of visitsSorted){
-      html += `<div class="card">
-        <div class="row">
-          <div><strong>${fmt(v.when)}</strong><br><small>${v.postAntiItch? 'Post anti-itch: '+v.postAntiItch : ''}</small></div>
-          <div><small>Left shots:</small> <strong>${v.leftCount}</strong></div>
-          <div><small>Right shots:</small> <strong>${v.rightCount}</strong></div>
-        </div>
-        ${v.notes ? `<div style="margin-top:6px"><small class="muted">Visit notes:</small><br>${v.notes.replace(/</g,'&lt;')}</div>` : ''}
-        <div style="margin-top:10px">
-          <table>
-            <thead><tr><th>Arm</th><th>#</th><th>Vial</th><th>Placement</th></tr></thead>
-            <tbody>`;
-      if (v.shots.length===0){
-        html += `<tr><td colspan="4"><small class="muted">No shot details recorded.</small></td></tr>`;
-      } else {
-        for (const s of v.shots){
-          html += `<tr>
-            <td>${s.side==='L'?'Left':'Right'}</td>
-            <td>${s.index}</td>
-            <td>${(s.vial||'').replace(/</g,'&lt;')}</td>
-            <td>${s.place}</td>
-          </tr>`;
-        }
-      }
-      html += `</tbody></table>
-        </div>
-        <div style="margin-top:10px">
-          <table>
-            <thead><tr><th>Check-in</th><th>Wheal (mm)</th><th>Itch</th><th>Red</th><th>Anti-itch</th><th>Notes</th></tr></thead>
-            <tbody>`;
-      const checks = data.checks.filter(c=>c.visitId===v.id).sort((a,b)=> new Date(a.when)-new Date(b.when));
-      if (checks.length===0){
-        html += `<tr><td colspan="6"><small class="muted">No check-ins logged.</small></td></tr>`;
-      } else {
-        for (const c of checks){
-          html += `<tr>
-            <td class="nowrap">${fmt(c.when)}</td>
-            <td>${c.whealMM ?? ''}</td>
-            <td>${c.itch ?? ''}</td>
-            <td>${c.redness ?? ''}</td>
-            <td>${c.antiItch ?? ''}</td>
-            <td>${c.notes ? c.notes.replace(/</g,'&lt;') : ''}</td>
-          </tr>`;
-        }
-      }
-      html += `</tbody></table></div></div>`;
+    host.innerHTML=html;
+  }
+
+  // ---------- Alerts (banners) ----------
+  function humanDur(ms){
+    const sign = ms<0 ? '-' : '';
+    ms = Math.abs(ms);
+    const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000);
+    return `${sign}${h}h ${m}m`;
+  }
+
+  function computeMedsMissedToday(){
+    const now=new Date();
+    const todayKey=dayKey(new Date(now.setHours(0,0,0,0)));
+    const taken=(data.medsDaily[todayKey]||{});
+    const S=data.medsSched||{};
+    const due = [];
+    const hour=(new Date()).getHours();
+    if(S.nasal?.am && hour>=AM_DUE_HOUR && !taken['nasal_am']) due.push(`${S.nasal.name} AM`);
+    if(S.inhaler?.am && hour>=AM_DUE_HOUR && !taken['inhaler_am']) due.push(`${S.inhaler.name} AM`);
+    if(S.nasal?.pm && hour>=PM_DUE_HOUR && !taken['nasal_pm']) due.push(`${S.nasal.name} PM`);
+    if(S.inhaler?.pm && hour>=PM_DUE_HOUR && !taken['inhaler_pm']) due.push(`${S.inhaler.name} PM`);
+    if(S.pill?.daily && hour>=PM_DUE_HOUR && !taken['pill_daily']) due.push(`${S.pill.name}`);
+    return due; // array of labels
+  }
+
+  function computeNextDueFollowup(){
+    if(data.visits.length===0) return null;
+    // look at most recent visit within last 4 days
+    const visits = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
+    const now = new Date();
+    const recent = visits.find(v => (now - new Date(v.when)) <= 4*24*3600*1000);
+    if(!recent) return null;
+    const checks = data.checks.filter(c => c.visitId===recent.id);
+    // Find first offset that is past due and not logged
+    for(const h of FOLLOWUP_OFFSETS){
+      const dueAt = new Date(new Date(recent.when).getTime() + h*3600*1000);
+      if(now < dueAt) return { type:'dueSoon', visit:recent, offset:h, dueAt, delta: dueAt-now };
+      // is there a check around this offset? (within +/- 6h)
+      const windowStart = new Date(dueAt.getTime() - 6*3600*1000);
+      const windowEnd   = new Date(dueAt.getTime() + 6*3600*1000);
+      const has = checks.some(c => new Date(c.when) >= windowStart && new Date(c.when) <= windowEnd);
+      if(!has) return { type:'overdue', visit:recent, offset:h, dueAt, delta: now-dueAt };
     }
-    host.innerHTML = html;
+    return null; // all offsets satisfied
+  }
+
+  function renderAlerts(){
+    const host=el('#alerts'); host.innerHTML='';
+    const meds = computeMedsMissedToday();
+    if(meds.length){
+      const b=document.createElement('div'); b.className='banner err';
+      b.innerHTML = `<div class="text"><strong>Missed today:</strong> ${meds.join(', ')}</div>
+                     <div class="actions"><button class="btn inline">Open Daily Meds</button></div>`;
+      b.querySelector('button').addEventListener('click', ()=>{
+        // switch to dailymeds tab
+        const btn = document.querySelector('#tabs button[data-tab="dailymeds"]'); btn?.click();
+        // scroll to grid
+        document.getElementById('tab-dailymeds')?.scrollIntoView({behavior:'smooth'});
+      });
+      host.appendChild(b);
+    }
+
+    const next = computeNextDueFollowup();
+    if(next){
+      const kindText = next.type==='overdue' ? `overdue by ${humanDur(next.delta)}` : `due in ${humanDur(next.delta)}`;
+      const b=document.createElement('div'); b.className = next.type==='overdue' ? 'banner err' : 'banner warn';
+      b.innerHTML = `<div class="text"><strong>Shot follow-up ${next.type==='overdue'?'needed':''}:</strong> +${next.offset}h (${kindText})</div>
+                     <div class="actions"><button class="btn inline">Log Check-In</button></div>`;
+      b.querySelector('button').addEventListener('click', ()=>{
+        // Open check-in tab, preselect visit, set time to now
+        const btn = document.querySelector('#tabs button[data-tab="checkin"]'); btn?.click();
+        const select = document.getElementById('checkVisit');
+        if(select){ select.value = next.visit.id; }
+        const ct = document.getElementById('checkTime');
+        if(ct){ ct.value = toLocalDatetimeValue(new Date()); }
+        document.getElementById('tab-checkin')?.scrollIntoView({behavior:'smooth'});
+      });
+      host.appendChild(b);
+    }
   }
 
   // ---------- Export / Import ----------
   function download(filename, text) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], {type: 'text/plain'}));
-    a.download = filename;
-    a.click();
-    setTimeout(()=> URL.revokeObjectURL(a.href), 500);
+    a.download = filename; a.click(); setTimeout(()=> URL.revokeObjectURL(a.href), 500);
   }
   el('#exportJSON').addEventListener('click', ()=> download('allergy-tracker.json', JSON.stringify(data,null,2)));
   el('#exportCSV').addEventListener('click', ()=>{
     const rows = [['check_id','visit_id','visit_time','check_time','left_shots','right_shots','wheal_mm','itch','redness','anti_itch','notes']];
     for (const c of data.checks){
       const v = data.visits.find(x=>x.id===c.visitId);
-      rows.push([
-        c.id,
-        c.visitId,
-        v ? v.when : '',
-        c.when,
-        v ? v.leftCount : '',
-        v ? v.rightCount : '',
-        c.whealMM ?? '',
-        c.itch ?? '',
-        c.redness ?? '',
-        c.antiItch ?? '',
-        (c.notes ?? '').replaceAll('"','""')
-      ]);
+      rows.push([c.id,c.visitId, v?v.when:'', c.when, v?v.leftCount:'', v?v.rightCount:'', c.whealMM??'', c.itch??'', c.redness??'', c.antiItch??'', (c.notes??'').replaceAll('"','""')]);
     }
-    const csv = rows.map(r => r.map(x=>{
-      const s = (x===null || x===undefined) ? '' : String(x);
-      return /[",\n]/.test(s) ? `"${s}"` : s;
-    }).join(',')).join('\n');
+    const csv = rows.map(r => r.map(x=>{ const s=(x==null)?'':String(x); return /[",\n]/.test(s)?`"${s}"`:s; }).join(',')).join('\n');
     download('reactions.csv', csv);
   });
   el('#importBtn').addEventListener('click', ()=>{
-    const file = el('#importFile').files?.[0];
-    if (!file){ alert('Choose a JSON file first.'); return; }
-    const reader = new FileReader();
-    reader.onload = ()=>{
-      try{
-        const incoming = JSON.parse(reader.result);
-        if (!incoming) throw new Error('Invalid JSON');
-        data = incoming;
-        persist();
-        alert('Import complete.');
-      } catch(e){ alert('Import failed: '+e.message); }
-    };
-    reader.readAsText(file);
+    const file = el('#importFile').files?.[0]; if(!file){ alert('Choose a JSON file first.'); return; }
+    const reader = new FileReader(); reader.onload = ()=>{
+      try{ const incoming=JSON.parse(reader.result); if(!incoming) throw new Error('Invalid JSON'); data=incoming; persist(); alert('Import complete.'); }
+      catch(e){ alert('Import failed: '+e.message); }
+    }; reader.readAsText(file);
   });
   el('#wipeAll').addEventListener('click', ()=>{
-    if (!confirm('Erase ALL locally stored data? This cannot be undone.')) return;
-    data = fresh();
-    persist();
-    alert('All data erased from this browser.');
+    if(!confirm('Erase ALL locally stored data? This cannot be undone.')) return;
+    data = fresh(); persist(); alert('All data erased from this browser.');
   });
 
   // ---------- Refresh ----------
@@ -890,63 +686,11 @@
     renderRecentPrn();
     renderHistory();
     renderDailyGrid();
+    renderAlerts();
   }
 
-  // Week nav for Daily Meds
-  function wireWeekNav(){
-    el('#prevWeek').addEventListener('click', ()=>{ weekOffset -= 1; renderDailyGrid(); });
-    el('#nextWeek').addEventListener('click', ()=>{ weekOffset += 1; renderDailyGrid(); });
-    el('#todayWeek').addEventListener('click', ()=>{ weekOffset = 0; renderDailyGrid(); });
-  }
-
-  // Initial UI load
-  loadVialsUI();
-  loadSchedUI();
-  loadSettingsUI();
-  renderShotRows();
-  wireWeekNav();
-  refreshAll();
-
-  // ---------- Check & PRN helpers ----------
-  const prnTime = el('#prnTime'); if (prnTime) prnTime.value = toLocalDatetimeValue();
-  el('#prnNow')?.addEventListener('click', ()=> prnTime.value = toLocalDatetimeValue());
-  function renderRecentPrn(){
-    const host = el('#recentPrn');
-    if(!host) return;
-    const items = [...data.medsPrn].sort((a,b)=> new Date(b.when)-new Date(a.when)).slice(0,10);
-    if (items.length===0){ host.innerHTML = '<small class="muted">No entries yet.</small>'; return; }
-    let html = '<table><thead><tr><th>When</th><th>Type</th><th>Details</th><th>Notes</th></tr></thead><tbody>';
-    for (const m of items){
-      html += `<tr>
-        <td class="nowrap">${fmt(m.when)}</td>
-        <td>${m.type}</td>
-        <td>${m.name ? m.name.replace(/</g,'&lt;') : ''}</td>
-        <td>${m.notes ? m.notes.replace(/</g,'&lt;') : ''}</td>
-      </tr>`;
-    }
-    html += '</tbody></table>';
-    host.innerHTML = html;
-  }
-
-  function populateVisitSelect(){
-    const sel = el('#checkVisit');
-    if(!sel) return;
-    sel.innerHTML = '';
-    const sorted = [...data.visits].sort((a,b)=> new Date(b.when)-new Date(a.when));
-    if (sorted.length===0){
-      sel.innerHTML = '<option value="">No visits yet</option>';
-      sel.disabled = true;
-      return;
-    }
-    sel.disabled = false;
-    for (const v of sorted){
-      const shotsTxt = `L:${v.leftCount} R:${v.rightCount}`;
-      const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = `${fmt(v.when)} — ${shotsTxt}${v.postAntiItch? ' — Anti-itch:'+v.postAntiItch : ''}`;
-      sel.appendChild(opt);
-    }
-  }
+  // Initial load
+  loadVialsUI(); loadSchedUI(); renderShotRows(); wireWeekNav(); refreshAll();
 
 })();
 </script>
